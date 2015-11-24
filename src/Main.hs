@@ -1,7 +1,7 @@
 module Main where
 
+import           Control.Monad.Reader
 import           Data.Content
-import           Data.Content.Types
 import qualified Data.Set           as Set
 import           System.Directory
 import           System.Environment (getArgs)
@@ -14,31 +14,43 @@ failCMS :: Either CMSError a -> IO a
 failCMS (Right a) = return a
 failCMS (Left e) = error (show e)
 
+runCommand :: CMS -> MonadCMS a -> IO a
+runCommand cms action = runCMS action cms >>= failCMS
+
 main = do
   cms <- getCurrentDirectory >>= cmsFrom
   command <- getArgs
-  case command of
-   ("all":filters) -> cmsListAll cms >>= doFilters cms filters
-   ("tag":tag:files) -> mapM_ (\fp -> runCMS (cmsResolve fp >>= cmsTag tag) cms >>= failCMS) files
-   ("untag":tag:files) -> mapM_ (\fp -> runCMS (cmsResolve fp >>= cmsUntag tag) cms >>= failCMS) files
-   ("import":files) -> mapM_ (\f -> runCMS (cmsImport f) cms) files
+  runCommand cms $ case command of
+    ("import":files)    -> mapM_ cmsImport files
+    ("all":filters)     -> things >>= doFilters filters
 
-doFilters :: CMS -> [String] -> Set.Set Thing -> IO ()
-doFilters cms [] set =
-  mapM_ (\x -> getPath cms x >>= putStrLn) (Set.elems set)
-doFilters cms ["actual"] set =
-  mapM_ (\x -> getActualPath cms x >>= putStrLn) (Set.elems set)
+    ("tag":tagname:files)   -> mapM_ (doTag tagname) files
+    ("untag":tagname:files) -> mapM_ (doNotag tagname) files
 
-doFilters cms ("with":tag:remaining) set =
-  Set.intersection set <$> cmsListTag cms tag >>= doFilters cms remaining
-doFilters cms ("not":tag:remaining) set =
-  Set.intersection set <$> cmsListUntag cms tag >>= doFilters cms remaining
+doTag tagname file = do
+  thingFromFile file >>= cmsTag tagname
+  liftIO $ hPutStrLn stderr $ tagname ++ " now includes '" ++ file ++ "'"
 
-doFilters cms ("lacking":tag:remaining) set = do
-  allIn <- cmsListTag cms tag
-  allOut <- cmsListUntag cms tag
+doNotag tagname file = do
+  thingFromFile file >>= cmsNotag tagname
+  liftIO $ hPutStrLn stderr $ tagname ++ " now excludes '" ++ file ++ "'"
+
+doFilters :: [String] -> Set.Set Thing -> MonadCMS ()
+doFilters [] set =
+  mapM_ (\t -> thingAbsolutePath t >>= liftIO . putStrLn) (Set.elems set)
+doFilters ["actual"] set =
+  mapM_ (\t -> thingCanonicalPath t >>= liftIO . putStrLn) (Set.elems set)
+
+doFilters ("with":tag:remaining) set =
+  Set.intersection set <$> tagThings tag >>= doFilters remaining
+doFilters ("not":tag:remaining) set =
+  Set.intersection set <$> notagThings tag >>= doFilters remaining
+
+doFilters ("lacking":tag:remaining) set = do
+  allIn <- tagThings tag
+  allOut <- notagThings tag
   let all = Set.union allIn allOut
-  doFilters cms remaining $ Set.filter (flip Set.notMember all) set
+  doFilters remaining $ Set.filter (flip Set.notMember all) set
 
-doFilters cms (other:_) set = do
-  hPutStrLn stderr $ "Unknown filter '" ++ other ++ "'"
+doFilters (other:_) set = do
+  liftIO $ hPutStrLn stderr $ "Unknown filter '" ++ other ++ "'"

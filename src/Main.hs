@@ -15,8 +15,8 @@ main = do
   command <- getArgs
   case command of
    ("all":filters) -> cmsListAll cms >>= doFilters cms filters
-   ("tag":tag:files) -> mapM_ (\fp -> runCMS' (cmsResolve cms fp) >>= runCMS' . (cmsTag cms tag)) files
-   ("untag":tag:files) -> mapM_ (\fp -> runCMS' (cmsResolve cms fp) >>= runCMS' . (cmsUntag cms tag)) files
+   ("tag":tag:files) -> mapM_ (\fp -> runCMS (cmsResolve fp >>= cmsTag tag) cms) files
+   ("untag":tag:files) -> mapM_ (\fp -> runCMS (cmsResolve fp >>= cmsUntag tag) cms) files
    ("import":files) -> mapM_ (\f -> runCMS (cmsImport f) cms) files
 
 doFilters :: CMS -> [String] -> Set.Set Thing -> IO ()

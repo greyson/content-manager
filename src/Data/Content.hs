@@ -31,13 +31,6 @@ tagDir t = (</> t) . (</> _tags) . cmsDir
 shasum :: FilePath -> IO String
 shasum fp = dumpRawBS . hashlazy <$> BL.readFile fp
 
-cmsThingFromFile :: CMS -> FilePath -> IO (Either CMSError Thing)
-cmsThingFromFile cms fp = do
-  afp <- almostCanonicalizePath fp
-  if (cmsDir cms) `isPrefixOf` afp
-     then cmsThingFromInternalFile cms (makeRelative (cmsDir cms) afp)
-     else return $ Left NotInCMS
-
 cmsThingFromInternalFile :: CMS -> String -> IO (Either CMSError Thing)
 cmsThingFromInternalFile cms afp =
   let top = cmsDir cms
@@ -83,8 +76,20 @@ cmsFrom fp = do
      if isDrive next then error "No content directory found"
                      else cmsFrom next
 
-cmsResolve :: CMS -> FilePath -> IO (Either CMSError Thing)
-cmsResolve cms fp = cmsThingFromFile cms fp
+cmsResolve :: FilePath -> MonadCMS Thing
+cmsResolve fp = do
+  top <- askCmsDir
+  afp <- liftIO $ almostCanonicalizePath fp
+  unless (top `isPrefixOf` afp) $ throwError NotInCMS
+  cms <- ask
+  lift $ ExceptT $ cmsThingFromInternalFile cms (makeRelative top afp)
+
+cmsThingFromFile :: CMS -> FilePath -> IO (Either CMSError Thing)
+cmsThingFromFile cms fp = do
+  afp <- almostCanonicalizePath fp
+  if (cmsDir cms) `isPrefixOf` afp
+     then cmsThingFromInternalFile cms (makeRelative (cmsDir cms) afp)
+     else return $ Left NotInCMS
 
 askCmsDir :: MonadCMS FilePath
 askCmsDir = cmsDir <$> ask
@@ -105,37 +110,35 @@ cmsImport file = do
   liftIO $ createDirectoryIfMissing True (takeDirectory linkAt)
   liftIO $ createSymbolicLink linkTo linkAt
 
-cmsTag :: CMS -> String -> Thing -> IO (Either CMSError ())
-cmsTag cms tag thing = do
+cmsMakeLink :: String -> FilePath -> FilePath -> FilePath -> MonadCMS ()
+cmsMakeLink tag linkAt linkTo removable = do
+  top <- askCmsDir
+
+  liftIO (doesDirectoryExist (top </> _tags </> tag)) >>=
+    flip unless (throwError $ NoSuchTag tag)
+  liftIO $ doesFileExist removable >>= flip when (removeFile removable)
+  liftIO $ createDirectoryIfMissing True (takeDirectory linkAt)
+  liftIO $ createSymbolicLink linkTo linkAt
+
+cmsTag :: String -> Thing -> MonadCMS ()
+cmsTag tag thing = do
+  top <- askCmsDir
   let sfp = unId (uniqueName thing)
-      linkAt = cmsDir cms </> _tags </> tag </> sfp
+      linkAt = top </> _tags </> tag </> sfp
       linkTo = ".." </> ".." </> ".." </> _all </> sfp
-      removable = cmsDir cms </> _tags </> tag </> _not </> sfp
+      removable = top </> _tags </> tag </> _not </> sfp
 
-  doesDirectoryExist (cmsDir cms </> _tags </> tag) >>= \t -> case t of
-    True -> do
-      doesFileExist removable >>= \x -> case x of
-        True -> removeFile removable
-        False -> return ()
-      createDirectoryIfMissing True (takeDirectory linkAt)
-      Right <$> createSymbolicLink linkTo linkAt
-    False -> return $ Left (NoSuchTag tag)
+  cmsMakeLink tag linkAt linkTo removable
 
-cmsUntag :: CMS -> String -> Thing -> IO (Either CMSError ())
-cmsUntag cms tag thing = do
+cmsUntag :: String -> Thing -> MonadCMS ()
+cmsUntag tag thing = do
+  top <- askCmsDir
   let sfp = unId (uniqueName thing)
-      linkAt = cmsDir cms </> _tags </> tag </> _not </> sfp
+      linkAt = top </> _tags </> tag </> _not </> sfp
       linkTo = ".." </> ".." </> ".." </> ".." </> _all </> sfp
-      removable = cmsDir cms </> _tags </> tag </> sfp
+      removable = top </> _tags </> tag </> sfp
 
-  doesDirectoryExist (cmsDir cms </> _tags </> tag) >>= \t -> case t of
-    True -> do
-      doesFileExist removable >>= \x -> case x of
-        True -> removeFile removable
-        False -> return ()
-      createDirectoryIfMissing True (takeDirectory linkAt)
-      Right <$> createSymbolicLink linkTo linkAt
-    False -> return $ Left (NoSuchTag tag)
+  cmsMakeLink tag linkAt linkTo removable
 
 isHidden ('.':_) = True
 isHidden _ = False

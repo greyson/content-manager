@@ -3,10 +3,6 @@ module Data.Content where
 
 import           Control.Monad.Except
 import           Control.Monad.Reader
-import           Crypto.Hash.SHA1     (hashlazy)
-import           Data.Bool            (bool)
-import qualified Data.ByteString      as B
-import qualified Data.ByteString.Lazy as BL
 import           Data.Char            (toLower)
 import           Data.Content.Types
 import           Data.List            (sort, isPrefixOf)
@@ -20,51 +16,14 @@ import           Text.Bytedump        (dumpRawBS)
 #define _tags "TAGS"
 #define _not  ".not"
 
-type MonadCMS a = ReaderT CMS (ExceptT CMSError IO) a
+runCMS = runCMSWithCMS
 
-runCMS :: MonadCMS a -> CMS -> IO (Either CMSError a)
-runCMS a cms = runExceptT $ runReaderT a cms
+runCMSWithCMS :: MonadCMS a -> CMS -> IO (Either CMSError a)
+runCMSWithCMS a cms = runExceptT $ runReaderT a cms
 
-allDir = (</> _all) . cmsDir
-tagDir t = (</> t) . (</> _tags) . cmsDir
-
-shasum :: FilePath -> IO String
-shasum fp = dumpRawBS . hashlazy <$> BL.readFile fp
-
-cmsThingFromInternalFile :: CMS -> String -> IO (Either CMSError Thing)
-cmsThingFromInternalFile cms afp =
-  let top = cmsDir cms
-
-      fromUniqueName f = do
-        theP <- canonicalizePath (top </> afp)
-        return $ Right $ Thing (Identifier f) (Just theP)
-
-      fromActualFile f = do
-        theP <- canonicalizePath (top </> afp)
-        ss <- shasum (top </> afp)
-        let ext = fmap toLower (takeExtensions f)
-            uni = (take 2 ss) </> (drop 2 ss) <.> ext
-        if top `isPrefixOf` theP
-          then return $ Right $ Thing (Identifier uni) (Just theP)
-          else return $ Left NotInCMS
-
-  in case splitDirectories afp of
-      [_all, x, y] -> fromUniqueName (x </> y)
-      [_tags, _, x, y] -> fromUniqueName (x </> y)
-      other -> fromActualFile (joinPath other)
-
-almostCanonicalizePath :: FilePath -> IO FilePath
-almostCanonicalizePath fp = do
-  stripMetaDirs <$> makeAbsolute fp
-
-stripMetaDirs :: FilePath -> FilePath
-stripMetaDirs fp = joinPath $ reverse $ dropMetas (reverse (splitDirectories fp), 0)
-  where dropMetas ("..":rest, drp)  = dropMetas (rest, drp +1)
-        dropMetas (".":rest, drp)   = dropMetas (rest,drp)
-        dropMetas (x:rest, 0)       = x:(dropMetas (rest,0))
-        dropMetas (_:rest, drp)     = dropMetas (rest, drp -1)
-        dropMetas ([], 0)           = []
-        dropMetas ([], _)           = error "Cannot drop more directories"
+runCMSLocally :: MonadCMS a -> IO (Either CMSError a)
+runCMSLocally act =
+  getCurrentDirectory >>= cmsFrom >>= runCMSWithCMS act
 
 cmsFrom :: FilePath -> IO CMS
 cmsFrom fp = do
@@ -82,17 +41,7 @@ cmsResolve fp = do
   afp <- liftIO $ almostCanonicalizePath fp
   unless (top `isPrefixOf` afp) $ throwError NotInCMS
   cms <- ask
-  lift $ ExceptT $ cmsThingFromInternalFile cms (makeRelative top afp)
-
-cmsThingFromFile :: CMS -> FilePath -> IO (Either CMSError Thing)
-cmsThingFromFile cms fp = do
-  afp <- almostCanonicalizePath fp
-  if (cmsDir cms) `isPrefixOf` afp
-     then cmsThingFromInternalFile cms (makeRelative (cmsDir cms) afp)
-     else return $ Left NotInCMS
-
-askCmsDir :: MonadCMS FilePath
-askCmsDir = cmsDir <$> ask
+  cmsThingFromInternalFile cms (makeRelative top afp)
 
 cmsImport :: FilePath -> MonadCMS ()
 cmsImport file = do
@@ -100,11 +49,9 @@ cmsImport file = do
   cfp <- liftIO $ canonicalizePath file
   unless (top `isPrefixOf` cfp) (throwError NotInCMS)
 
-  ss <- liftIO $ shasum (top </> file)
-  let ext = fmap toLower (takeExtensions file)
-      uni = (take 2 ss) </> (drop 2 ss) <.> ext
-      linkAt = top </> _all </> uni
-      linkTo = ".." </> ".." </> file
+  uni <- liftIO $ uniqueNameFromFileContents cfp
+  let linkAt = top </> _all </> unId uni
+      linkTo = relativise linkAt cfp
 
   liftIO $ doesFileExist linkAt >>= flip when (removeFile linkAt)
   liftIO $ createDirectoryIfMissing True (takeDirectory linkAt)
@@ -125,7 +72,7 @@ cmsTag tag thing = do
   top <- askCmsDir
   let sfp = unId (uniqueName thing)
       linkAt = top </> _tags </> tag </> sfp
-      linkTo = ".." </> ".." </> ".." </> _all </> sfp
+      linkTo = relativise linkAt (top </> _all </> sfp)
       removable = top </> _tags </> tag </> _not </> sfp
 
   cmsMakeLink tag linkAt linkTo removable
@@ -135,13 +82,10 @@ cmsUntag tag thing = do
   top <- askCmsDir
   let sfp = unId (uniqueName thing)
       linkAt = top </> _tags </> tag </> _not </> sfp
-      linkTo = ".." </> ".." </> ".." </> ".." </> _all </> sfp
+      linkTo = relativise linkAt (top </> _all </> _not </> sfp)
       removable = top </> _tags </> tag </> sfp
 
   cmsMakeLink tag linkAt linkTo removable
-
-isHidden ('.':_) = True
-isHidden _ = False
 
 listThings :: CMS -> FilePath -> IO (Set.Set Thing)
 listThings cms dir = do
@@ -174,3 +118,22 @@ getActualPath cms thing =
   case path thing of
    Just p -> return p
    Nothing -> canonicalizePath (cmsDir cms </> _all </> unId (uniqueName thing))
+
+cmsThingFromInternalFile :: CMS -> String -> MonadCMS Thing
+cmsThingFromInternalFile cms afp = do
+  top <- askCmsDir
+  thePath <- liftIO $ canonicalizePath (top </> afp)
+  unless (top `isPrefixOf` thePath) $ throwError NotInCMS
+
+  let fromUniqueName id =
+        return $ Thing (Identifier id) (Just thePath)
+
+      fromActualFile file = do
+        id <- liftIO $ uniqueNameFromFileContents thePath
+        return $ Thing id (Just thePath)
+
+  case splitDirectories afp of
+    [_all, x, y] -> fromUniqueName (x </> y)
+    [_tags, _, x, y] -> fromUniqueName (x </> y)
+    [_tags, _, _not, x, y] -> fromUniqueName (x </> y)
+    other -> fromActualFile afp

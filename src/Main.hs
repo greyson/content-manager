@@ -10,13 +10,17 @@ import           System.IO          (hPutStrLn, stderr)
 runCMS' :: IO (Either CMSError a) -> IO a
 runCMS' action = action >>= either (error . show) return
 
+failCMS :: Either CMSError a -> IO a
+failCMS (Right a) = return a
+failCMS (Left e) = error (show e)
+
 main = do
   cms <- getCurrentDirectory >>= cmsFrom
   command <- getArgs
   case command of
    ("all":filters) -> cmsListAll cms >>= doFilters cms filters
-   ("tag":tag:files) -> mapM_ (\fp -> runCMS (cmsResolve fp >>= cmsTag tag) cms) files
-   ("untag":tag:files) -> mapM_ (\fp -> runCMS (cmsResolve fp >>= cmsUntag tag) cms) files
+   ("tag":tag:files) -> mapM_ (\fp -> runCMS (cmsResolve fp >>= cmsTag tag) cms >>= failCMS) files
+   ("untag":tag:files) -> mapM_ (\fp -> runCMS (cmsResolve fp >>= cmsUntag tag) cms >>= failCMS) files
    ("import":files) -> mapM_ (\f -> runCMS (cmsImport f) cms) files
 
 doFilters :: CMS -> [String] -> Set.Set Thing -> IO ()

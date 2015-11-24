@@ -7,17 +7,17 @@ import           System.Directory
 import           System.Environment (getArgs)
 import           System.IO          (hPutStrLn, stderr)
 
-runCMS :: IO (Either CMSError a) -> IO a
-runCMS action = action >>= either (error . show) return
+runCMS' :: IO (Either CMSError a) -> IO a
+runCMS' action = action >>= either (error . show) return
 
 main = do
   cms <- getCurrentDirectory >>= cmsFrom
   command <- getArgs
   case command of
    ("all":filters) -> cmsListAll cms >>= doFilters cms filters
-   ("tag":tag:files) -> mapM_ (\fp -> runCMS (cmsResolve cms fp) >>= runCMS . (cmsTag cms tag)) files
-   ("untag":tag:files) -> mapM_ (\fp -> runCMS (cmsResolve cms fp) >>= runCMS . (cmsUntag cms tag)) files
-   ("import":files) -> mapM_ (runCMS . cmsImport cms) files
+   ("tag":tag:files) -> mapM_ (\fp -> runCMS' (cmsResolve cms fp) >>= runCMS' . (cmsTag cms tag)) files
+   ("untag":tag:files) -> mapM_ (\fp -> runCMS' (cmsResolve cms fp) >>= runCMS' . (cmsUntag cms tag)) files
+   ("import":files) -> mapM_ (\f -> runCMS (cmsImport f) cms) files
 
 doFilters :: CMS -> [String] -> Set.Set Thing -> IO ()
 doFilters cms [] set =

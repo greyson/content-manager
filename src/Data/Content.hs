@@ -1,7 +1,10 @@
 {-# LANGUAGE CPP #-}
 module Data.Content where
 
+import           Control.Monad.Except
+import           Control.Monad.Reader
 import           Crypto.Hash.SHA1     (hashlazy)
+import           Data.Bool            (bool)
 import qualified Data.ByteString      as B
 import qualified Data.ByteString.Lazy as BL
 import           Data.Char            (toLower)
@@ -16,6 +19,11 @@ import           Text.Bytedump        (dumpRawBS)
 #define _all  "ALL"
 #define _tags "TAGS"
 #define _not  ".not"
+
+type MonadCMS a = ReaderT CMS (ExceptT CMSError IO) a
+
+runCMS :: MonadCMS a -> CMS -> IO (Either CMSError a)
+runCMS a cms = runExceptT $ runReaderT a cms
 
 allDir = (</> _all) . cmsDir
 tagDir t = (</> t) . (</> _tags) . cmsDir
@@ -78,28 +86,24 @@ cmsFrom fp = do
 cmsResolve :: CMS -> FilePath -> IO (Either CMSError Thing)
 cmsResolve cms fp = cmsThingFromFile cms fp
 
-cmsImport :: CMS -> FilePath -> IO (Either CMSError ())
-cmsImport cms file = do
-  cfp <- canonicalizePath file
-  if (cmsDir cms) `isPrefixOf` cfp
-     then cmsCreateThing cms (makeRelative (cmsDir cms) cfp)
-     else return $ Left NotInCMS
+askCmsDir :: MonadCMS FilePath
+askCmsDir = cmsDir <$> ask
 
-cmsCreateThing :: CMS -> FilePath -> IO (Either CMSError ())
-cmsCreateThing cms file = do
-  ss <- shasum (cmsDir cms </> file)
+cmsImport :: FilePath -> MonadCMS ()
+cmsImport file = do
+  top <- askCmsDir
+  cfp <- liftIO $ canonicalizePath file
+  unless (top `isPrefixOf` cfp) (throwError NotInCMS)
+
+  ss <- liftIO $ shasum (top </> file)
   let ext = fmap toLower (takeExtensions file)
       uni = (take 2 ss) </> (drop 2 ss) <.> ext
-      linkAt = cmsDir cms </> _all </> uni
+      linkAt = top </> _all </> uni
       linkTo = ".." </> ".." </> file
 
-  doesFileExist linkAt >>= \x -> case x of
-    True -> removeFile linkAt
-    False -> return ()
-  createDirectoryIfMissing True (takeDirectory linkAt)
-  putStrLn $ "Creating link to " ++ linkTo ++ " at " ++ linkAt
-  Right <$> createSymbolicLink linkTo linkAt
-
+  liftIO $ doesFileExist linkAt >>= flip when (removeFile linkAt)
+  liftIO $ createDirectoryIfMissing True (takeDirectory linkAt)
+  liftIO $ createSymbolicLink linkTo linkAt
 
 cmsTag :: CMS -> String -> Thing -> IO (Either CMSError ())
 cmsTag cms tag thing = do

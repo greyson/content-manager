@@ -5,6 +5,8 @@ module Data.Content.Types
 
        , CMSError(..)
        , Tag
+       , getTag
+
        , CMSFilePath, cmsFilePath
        , cmsAbsolute, cmsCanonical
 
@@ -61,7 +63,17 @@ cmsFrom fp = do
 runCMS :: MonadCMS a -> CMS -> IO (Either CMSError a)
 runCMS a cms = runExceptT $ runReaderT a cms
 
-type Tag = String
+newtype Tag = Tag { unTag :: String }
+
+instance Show Tag where
+  show (Tag t) = t
+
+getTag :: String -> MonadCMS Tag
+getTag tagname = do
+  top <- askCmsDir
+  tagExists <- liftIO $ Posix.doesDirectoryExist (top </> _tags </> tagname </> _not)
+  unless tagExists $ throwError (NoSuchTag tagname)
+  return $ Tag tagname
 
 newtype CMSFilePath = CMSFilePath { unCmsPath :: FilePath }
                     deriving Show
@@ -82,10 +94,10 @@ thingPath :: Thing -> CMSFilePath
 thingPath thing = CMSFilePath $ _all </> unId (uniqueName thing)
 
 thingTagPath :: Tag -> Thing -> CMSFilePath
-thingTagPath tag thing = CMSFilePath $ _tags </> tag </> unId (uniqueName thing)
+thingTagPath tag thing = CMSFilePath $ _tags </> unTag tag </> unId (uniqueName thing)
 
 thingNotagPath :: Tag -> Thing -> CMSFilePath
-thingNotagPath tag thing = CMSFilePath $ _tags </> tag </> _not </> unId (uniqueName thing)
+thingNotagPath tag thing = CMSFilePath $ _tags </> unTag tag </> _not </> unId (uniqueName thing)
 
 cmsAbsolute :: CMSFilePath -> MonadCMS FilePath
 cmsAbsolute (CMSFilePath cfp) = do
@@ -153,10 +165,10 @@ things :: MonadCMS (Set.Set Thing)
 things = thingList (CMSFilePath _all)
 
 tagThings :: Tag -> MonadCMS (Set.Set Thing)
-tagThings t = thingList (CMSFilePath $ _tags </> t)
+tagThings t = thingList (CMSFilePath $ _tags </> unTag t)
 
 notagThings :: Tag -> MonadCMS (Set.Set Thing)
-notagThings t = thingList (CMSFilePath $ _tags </> t </> _not)
+notagThings t = thingList (CMSFilePath $ _tags </> unTag t </> _not)
 
 
 thingList :: CMSFilePath -> MonadCMS (Set.Set Thing)

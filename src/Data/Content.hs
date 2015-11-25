@@ -10,6 +10,8 @@ module Data.Content
        , things, tagThings, notagThings
 
        , Tag
+       , getTag
+
        , cmsImport, cmsTag, cmsNotag
        ) where
 

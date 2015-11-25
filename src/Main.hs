@@ -28,8 +28,8 @@ main = do
     ("import":files)    -> mapM_ cmsImport files
     ("all":filters)     -> things >>= doFilters filters
 
-    ("tag":tagname:files)   -> mapM_ (doTag tagname) files
-    ("untag":tagname:files) -> mapM_ (doNotag tagname) files
+    ("tag":tagname:files)   -> getTag tagname >>= \t -> mapM_ (doTag t) files
+    ("untag":tagname:files) -> getTag tagname >>= \t -> mapM_ (doNotag t) files
 
     ["fix"] -> things >>= mapM_ checkAndFixLink
 
@@ -56,13 +56,15 @@ checkAndFixLink t = do
     renameFile abs target
     putStrLn $ "Fixed " ++ target
 
-doTag tagname file = do
-  thingFromFile file >>= cmsTag tagname
-  liftIO $ hPutStrLn stderr $ tagname ++ " now includes '" ++ file ++ "'"
+doTag :: Tag -> FilePath -> MonadCMS ()
+doTag tag file = do
+  thingFromFile file >>= cmsTag tag
+  liftIO $ hPutStrLn stderr $ show tag ++ " now includes '" ++ file ++ "'"
 
-doNotag tagname file = do
-  thingFromFile file >>= cmsNotag tagname
-  liftIO $ hPutStrLn stderr $ tagname ++ " now excludes '" ++ file ++ "'"
+doNotag :: Tag -> FilePath -> MonadCMS ()
+doNotag tag file = do
+  thingFromFile file >>= cmsNotag tag
+  liftIO $ hPutStrLn stderr $ show tag ++ " now excludes '" ++ file ++ "'"
 
 doFilters :: [String] -> Set.Set Thing -> MonadCMS ()
 doFilters [] set =
@@ -70,12 +72,15 @@ doFilters [] set =
 doFilters ["actual"] set =
   mapM_ (\t -> thingCanonicalPath t >>= liftIO . putStrLn) (Set.elems set)
 
-doFilters ("with":tag:remaining) set =
+doFilters ("with":tagname:remaining) set = do
+  tag <- getTag tagname
   Set.intersection set <$> tagThings tag >>= doFilters remaining
-doFilters ("not":tag:remaining) set =
+doFilters ("not":tagname:remaining) set = do
+  tag <- getTag tagname
   Set.intersection set <$> notagThings tag >>= doFilters remaining
 
-doFilters ("lacking":tag:remaining) set = do
+doFilters ("lacking":tagname:remaining) set = do
+  tag <- getTag tagname
   allIn <- tagThings tag
   allOut <- notagThings tag
   let all = Set.union allIn allOut

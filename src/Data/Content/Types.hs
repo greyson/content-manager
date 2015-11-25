@@ -34,10 +34,12 @@ import           Data.List             (isPrefixOf)
 import qualified Data.Set              as Set
 import qualified System.Directory      as Posix
 import           System.FilePath
+import           System.IO.Error
 import qualified System.Posix.Files    as Posix
 import           Text.Bytedump         (dumpRawBS)
 
 data CMSError = CMSError String
+              | CMSIOError IOError
               | OutsideCMS
               | NotInCMS
               | NoSuchTag String
@@ -105,11 +107,17 @@ cmsAbsolute (CMSFilePath cfp) = do
   return $ top </> cfp
 
 createLink :: CMSFilePath -> CMSFilePath -> MonadCMS ()
-createLink linkTo anchor =
+createLink linkTo anchor = do
   let to = relativise anchor linkTo
-  in do
-     at <- cmsAbsolute anchor
-     liftIO $ Posix.createSymbolicLink to at
+  at <- cmsAbsolute anchor
+  cmsIO $ Posix.createSymbolicLink to at
+
+cmsIO :: IO a -> MonadCMS a
+cmsIO = lift . withExceptT toCMSError . ExceptT . tryIOError
+  where
+    toCMSError io
+      | isAlreadyExistsError io = AlreadyExists
+      | otherwise               = CMSIOError io
 
 cmsCanonical :: CMSFilePath -> MonadCMS FilePath
 cmsCanonical (CMSFilePath cfp) = do

@@ -1,6 +1,6 @@
 module Main where
 
-import           Control.Monad.Reader
+import           Control.Monad.Except
 import           Data.Content
 import qualified Data.Set           as Set
 import           System.Directory
@@ -28,8 +28,8 @@ main = do
     ("import":files)    -> mapM_ cmsImport files
     ("all":filters)     -> things >>= doFilters filters
 
-    ("tag":tagname:files)   -> getTag tagname >>= \t -> mapM_ (doTag t) files
-    ("untag":tagname:files) -> getTag tagname >>= \t -> mapM_ (doNotag t) files
+    ("tag":tagname:files)   -> doTagging doTag tagname files
+    ("untag":tagname:files) -> doTagging doNotag tagname files
 
     ["fix"] -> things >>= mapM_ checkAndFixLink
 
@@ -55,6 +55,16 @@ checkAndFixLink t = do
     putStrLn $ "Want to fix " ++ abs
     renameFile abs target
     putStrLn $ "Fixed " ++ target
+
+doTagging :: (Tag -> FilePath -> MonadCMS ()) -> String -> [FilePath] -> MonadCMS ()
+doTagging how tagname files = do
+  tag <- getTag tagname
+  mapM_ (\f -> how tag f `catchError` handleError) files
+  where
+    handleError :: CMSError -> MonadCMS ()
+    handleError AlreadyExists = return () -- Acceptable error.
+    handleError other         = throwError other
+
 
 doTag :: Tag -> FilePath -> MonadCMS ()
 doTag tag file = do

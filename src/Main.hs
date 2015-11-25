@@ -4,8 +4,12 @@ import           Control.Monad.Reader
 import           Data.Content
 import qualified Data.Set           as Set
 import           System.Directory
-import           System.Environment (getArgs)
+import           System.Environment (getArgs, setEnv, getProgName)
 import           System.IO          (hPutStrLn, stderr)
+import           System.Process     (callProcess)
+
+import Data.Char (toLower)
+import System.FilePath
 
 runCMS' :: IO (Either CMSError a) -> IO a
 runCMS' action = action >>= either (error . show) return
@@ -26,6 +30,31 @@ main = do
 
     ("tag":tagname:files)   -> mapM_ (doTag tagname) files
     ("untag":tagname:files) -> mapM_ (doNotag tagname) files
+
+    ["fix"] -> things >>= mapM_ checkAndFixLink
+
+    (cmd:arguments) -> liftIO $ do
+      exe <- findExecutable $ "cm-" ++ cmd
+      case exe of
+        Nothing -> hPutStrLn stderr $ "Unknown command '" ++ cmd ++ "'"
+        Just progname -> do
+          getProgName >>= setEnv "CM"
+          setEnv "CM_DIR" (cmsRoot cms)
+          callProcess progname arguments
+
+checkAndFixLink t = do
+  abs <- thingAbsolutePath t
+  can <- thingCanonicalPath t
+
+  let wanted = fmap toLower $ takeExtension can
+      target = dropExtensions abs <.> wanted
+
+  when (length (takeExtensions can) > 4) $
+    liftIO $ putStrLn $ "Checking " ++ (takeExtensions abs) ++ " against " ++ wanted
+  when (takeExtensions abs /= wanted) $ liftIO $ do
+    putStrLn $ "Want to fix " ++ abs
+    renameFile abs target
+    putStrLn $ "Fixed " ++ target
 
 doTag tagname file = do
   thingFromFile file >>= cmsTag tagname

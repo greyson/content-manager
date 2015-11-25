@@ -1,6 +1,6 @@
 {-# LANGUAGE CPP #-}
 module Data.Content.Types
-       ( CMS, cmsFrom
+       ( CMS, cmsFrom, cmsRoot
        , runCMS
 
        , CMSError(..)
@@ -45,6 +45,8 @@ data CMSError = CMSError String
 data CMS = CMS { cmsDir :: FilePath
                }
            deriving Show
+
+cmsRoot cms = cmsDir cms
 
 cmsFrom :: FilePath -> IO CMS
 cmsFrom fp = do
@@ -165,7 +167,7 @@ thingList dir = do
   return $ Set.fromList $ map (\u -> Thing (Identifier u) Nothing) $ concat uniqs
 
 isUniTop x = not (isHidden x) && (length x == 2)
-isUniSub x = not (isHidden x) && (length (dropExtension x) == 38)
+isUniSub x = not (isHidden x) && (length (dropExtensions x) == 38)
 getUniSubs dirInTop = filter isUniSub <$> Posix.getDirectoryContents dirInTop
 
 --
@@ -188,7 +190,7 @@ shasum fp = dumpRawBS . hashlazy <$> BL.readFile fp
 uniqueNameFromFileContents :: FilePath -> IO Identifier
 uniqueNameFromFileContents fp = do
   sha <- shasum fp
-  let ext = fmap toLower (takeExtensions fp)
+  let ext = fmap toLower (takeExtension fp)
   return $ Identifier $ (take 2 sha) </> (drop 2 sha) <.> ext
 
 stripMetaDirs :: FilePath -> FilePath

@@ -1,7 +1,7 @@
 {-# LANGUAGE CPP #-}
 module Data.Content
        ( CMSError(..)
-       , CMS, cmsFrom
+       , CMS, cmsFrom, cmsRoot
 
        , MonadCMS, runCMS
 

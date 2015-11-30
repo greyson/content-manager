@@ -1,3 +1,4 @@
+{-# LANGUAGE MultiWayIf #-}
 module Main where
 
 import           Control.Monad.Except
@@ -5,8 +6,9 @@ import           Data.Content
 import qualified Data.Set           as Set
 import           System.Directory
 import           System.Environment (getArgs, setEnv, getProgName)
+import           System.Exit        (ExitCode(..))
 import           System.IO          (hPutStrLn, stderr)
-import           System.Process     (callProcess)
+import           System.Process     (callProcess, spawnProcess, waitForProcess)
 
 import Data.Char (toLower)
 import System.FilePath
@@ -43,6 +45,22 @@ main = do
           getProgName >>= setEnv "CM"
           setEnv "CM_DIR" (cmsRoot cms)
           callProcess progname arguments
+
+data AutoFilterResult = Include | Exclude | DoNotTag
+                      deriving Show
+
+callAutoFilter :: CMS -> FilePath -> FilePath -> IO AutoFilterResult
+callAutoFilter cms command file = do
+  let includeRetval = 81
+      excludeRetval = 45
+  getProgName >>= setEnv "CM"
+  setEnv "CM_DIR" (cmsRoot cms)
+  setEnv "CM_INCLUDE_RETVAL" (show includeRetval)
+  setEnv "CM_EXCLUDE_RETVAL" (show excludeRetval)
+  result <- spawnProcess command [file] >>= waitForProcess
+  return $ if | result == (ExitFailure includeRetval) -> Include
+              | result == (ExitFailure excludeRetval) -> Exclude
+              | otherwise                             -> DoNotTag
 
 checkAndFixExtension t = do
   abs <- thingAbsolutePath t

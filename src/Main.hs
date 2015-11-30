@@ -31,8 +31,10 @@ main = do
     ("tag":tagname:files)   -> doTagging doTag tagname files
     ("untag":tagname:files) -> doTagging doNotag tagname files
 
-    ["fix"] -> things >>= mapM_ checkAndFixLink
+    ["fix"] -> things >>= mapM_ checkAndFixExtension
+    ["gc"]  -> doGarbageCollect
 
+    -- Allow external 'extensions' to the content management system.
     (cmd:arguments) -> liftIO $ do
       exe <- findExecutable $ "cm-" ++ cmd
       case exe of
@@ -42,15 +44,13 @@ main = do
           setEnv "CM_DIR" (cmsRoot cms)
           callProcess progname arguments
 
-checkAndFixLink t = do
+checkAndFixExtension t = do
   abs <- thingAbsolutePath t
   can <- thingCanonicalPath t
 
   let wanted = fmap toLower $ takeExtension can
       target = dropExtensions abs <.> wanted
 
-  when (length (takeExtensions can) > 4) $
-    liftIO $ putStrLn $ "Checking " ++ (takeExtensions abs) ++ " against " ++ wanted
   when (takeExtensions abs /= wanted) $ liftIO $ do
     putStrLn $ "Want to fix " ++ abs
     renameFile abs target
@@ -75,6 +75,10 @@ doNotag :: Tag -> FilePath -> MonadCMS ()
 doNotag tag file = do
   thingFromFile file >>= cmsNotag tag
   liftIO $ hPutStrLn stderr $ show tag ++ " now excludes '" ++ file ++ "'"
+
+doGarbageCollect :: MonadCMS ()
+doGarbageCollect = do
+  cleanRootLinks >>= mapM_ (liftIO . putStrLn . ("dead: " ++))
 
 doFilters :: [String] -> Set.Set Thing -> MonadCMS ()
 doFilters [] set =

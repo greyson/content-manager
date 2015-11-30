@@ -13,6 +13,7 @@ module Data.Content
        , getTag
 
        , cmsImport, cmsTag, cmsNotag
+       , cleanRootLinks
        ) where
 
 import           Control.Monad.Except
@@ -20,6 +21,7 @@ import           Control.Monad.Reader
 import           Data.Char            (toLower)
 import           Data.Content.Types
 import           Data.List            (sort, isPrefixOf)
+import           Data.Maybe           (isNothing)
 import qualified Data.Set             as Set
 import           System.Directory
 import           System.FilePath
@@ -66,3 +68,18 @@ cmsNotag tag thing = do
   liftIO $ doesFileExist rm >>= flip when (removeFile rm)
   liftIO $ createDirectoryIfMissing True (takeDirectory at)
   createLink linkTo linkAt
+
+cleanRootLinks :: MonadCMS [FilePath]
+cleanRootLinks = brokenRootLinks >>= mapM delete
+  where delete l = thingAbsolutePath l >>= \f -> liftIO $ do
+          removeFile f
+          return f
+
+catchMaybe a = (Just <$> a) `catchError` (return . const Nothing)
+
+brokenRootLinks :: MonadCMS [Thing]
+brokenRootLinks =
+  map fst . filter (isNothing . snd) <$> rootLinks
+  where rootLinks = do
+          allthethings <- Set.elems <$> things
+          zip allthethings <$> mapM (catchMaybe . thingCanonicalPath) allthethings

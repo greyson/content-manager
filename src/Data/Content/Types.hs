@@ -50,6 +50,7 @@ data CMS = CMS { cmsDir :: FilePath
                }
            deriving Show
 
+-- | Get a CMS root directory
 cmsRoot cms = cmsDir cms
 
 cmsFrom :: FilePath -> IO CMS
@@ -106,6 +107,11 @@ cmsAbsolute (CMSFilePath cfp) = do
   top <- askCmsDir
   return $ top </> cfp
 
+cmsCanonical :: CMSFilePath -> MonadCMS FilePath
+cmsCanonical (CMSFilePath cfp) = do
+  top <- askCmsDir
+  cmsIO $ Posix.canonicalizePath (top </> cfp)
+
 createLink :: CMSFilePath -> CMSFilePath -> MonadCMS ()
 createLink linkTo anchor = do
   let to = relativise anchor linkTo
@@ -118,11 +124,6 @@ cmsIO = lift . withExceptT toCMSError . ExceptT . tryIOError
     toCMSError io
       | isAlreadyExistsError io = AlreadyExists
       | otherwise               = CMSIOError io
-
-cmsCanonical :: CMSFilePath -> MonadCMS FilePath
-cmsCanonical (CMSFilePath cfp) = do
-  top <- askCmsDir
-  liftIO $ Posix.canonicalizePath (top </> cfp)
 
 type MonadCMS a = ReaderT CMS (ExceptT CMSError IO) a
 
@@ -198,7 +199,7 @@ thingAbsolutePath :: Thing -> MonadCMS FilePath
 thingAbsolutePath t = cmsAbsolute $ thingPath t
 
 thingCanonicalPath :: Thing -> MonadCMS FilePath
-thingCanonicalPath t = thingAbsolutePath t >>= liftIO . Posix.canonicalizePath
+thingCanonicalPath t = thingAbsolutePath t >>= cmsIO . Posix.canonicalizePath
 
 --
 -- General purpose utilities

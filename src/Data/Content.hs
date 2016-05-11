@@ -1,9 +1,11 @@
 {-# LANGUAGE CPP #-}
 module Data.Content
-       ( CMSError(..)
-       , CMS, cmsFrom, cmsRoot
+       ( CMSError(..), CMS
+       , cms
+       , cmsRoot
 
-       , MonadCMS, runCMS
+       , MonadCMS
+       , runCMS
 
        , Thing
        , thingFromFile, thingAbsolutePath, thingCanonicalPath
@@ -20,6 +22,7 @@ import           Control.Monad.Except
 import           Control.Monad.Reader
 import           Data.Char            (toLower)
 import           Data.Content.Types
+import           Data.Content.Utils
 import           Data.List            (sort, isPrefixOf)
 import           Data.Maybe           (isNothing)
 import qualified Data.Set             as Set
@@ -40,7 +43,7 @@ cmsImport file = do
 
   at <- cmsAbsolute linkAt
 
-  liftIO $ doesFileExist at >>= flip when (removeFile at)
+  liftIO $ doesFileExist at >>= allow (removeFile at)
   liftIO $ createDirectoryIfMissing True (takeDirectory at)
   createLink crfp linkAt
   liftIO $ putStrLn $ "Imported " ++ file
@@ -53,7 +56,7 @@ cmsTag tag thing = do
 
   rm <- cmsAbsolute unlink
   at <- cmsAbsolute linkAt
-  liftIO $ doesFileExist rm >>= flip when (removeFile rm)
+  liftIO $ doesFileExist rm >>= allow (removeFile rm)
   liftIO $ createDirectoryIfMissing True (takeDirectory at)
   createLink linkTo linkAt
 
@@ -65,7 +68,7 @@ cmsNotag tag thing = do
 
   rm <- cmsAbsolute unlink
   at <- cmsAbsolute linkAt
-  liftIO $ doesFileExist rm >>= flip when (removeFile rm)
+  liftIO $ doesFileExist rm >>= allow (removeFile rm)
   liftIO $ createDirectoryIfMissing True (takeDirectory at)
   createLink linkTo linkAt
 

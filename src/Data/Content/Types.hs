@@ -1,16 +1,20 @@
 {-# LANGUAGE CPP #-}
 module Data.Content.Types
-       ( CMS, cmsFrom, cmsRoot
-       , runCMS
+       ( CMS, CMSError(..)
+       , cms
+       , cmsRoot
 
-       , CMSError(..)
+       , runCMS
+       , MonadCMS
+
        , Tag
        , getTag
 
-       , CMSFilePath, cmsFilePath
-       , cmsAbsolute, cmsCanonical
+       , CMSFilePath
+       , cmsFilePath
+       , cmsAbsolute
+       , cmsCanonical
 
-       , MonadCMS
        , Thing, thingPath, thingTagPath, thingNotagPath, thingFromFile
 
        , things, tagThings, notagThings
@@ -29,6 +33,7 @@ import           Control.Monad.Except
 import           Control.Monad.Reader
 import           Crypto.Hash.SHA1      (hashlazy)
 import qualified Data.ByteString.Lazy   as BL
+import           Data.Content.Utils
 import           Data.Char             (toLower)
 import           Data.List             (isPrefixOf)
 import qualified Data.Set              as Set
@@ -50,40 +55,54 @@ data CMS = CMS { cmsDir :: FilePath
                }
            deriving Show
 
--- | Get a CMS root directory
-cmsRoot cms = cmsDir cms
+type MonadCMS a = ReaderT CMS (ExceptT CMSError IO) a
 
-cmsFrom :: FilePath -> IO CMS
-cmsFrom fp = do
+-- |'cms' /path/ instantiates the CMS which is at, or contains /path/
+cms :: FilePath -> IO CMS
+cms fp = do
   hasAll <- Posix.doesDirectoryExist (fp </> _all)
   case hasAll of
    True -> return $ CMS fp
    False -> do
      let next = takeDirectory fp
      if isDrive next then error "No content directory found"
-                     else cmsFrom next
+                     else cms next
 
+-- | Run a CMS action with a given CMS.
 runCMS :: MonadCMS a -> CMS -> IO (Either CMSError a)
 runCMS a cms = runExceptT $ runReaderT a cms
 
+-- | Get the CMS's root directory
+cmsRoot :: MonadCMS FilePath
+cmsRoot = cmsDir <$> ask
+
 newtype Tag = Tag { unTag :: String }
+            deriving Eq
 
 instance Show Tag where
   show (Tag t) = t
 
+-- | 'getTag' /tagname/ obtains a 'Tag' with the given /tagname/ as
+-- long as it exists within the CMS.
 getTag :: String -> MonadCMS Tag
 getTag tagname = do
-  top <- askCmsDir
+  top <- cmsRoot
   tagExists <- liftIO $ Posix.doesDirectoryExist (top </> _tags </> tagname </> _not)
   unless tagExists $ throwError (NoSuchTag tagname)
   return $ Tag tagname
 
+-- | 'CMSFilePath' is a file path within the CMS, relative to its
+-- root. This type is opaque so as to protect functions assuming they
+-- have an internal path.
 newtype CMSFilePath = CMSFilePath { unCmsPath :: FilePath }
                     deriving Show
 
+-- | 'cmsFilePath' /path/ will attempt to obtain a CMS-relative
+-- filepath for a given filepath of unknown origin (from the command
+-- line, for instance).
 cmsFilePath :: FilePath -> MonadCMS CMSFilePath
 cmsFilePath fp = do
-  top <- askCmsDir
+  top <- cmsRoot
   afp <- liftIO $ almostCanonicalizePath fp
   unless (top `isPrefixOf` afp) $ throwError OutsideCMS
   return $ CMSFilePath $ makeRelative top afp
@@ -104,28 +123,27 @@ thingNotagPath tag thing = CMSFilePath $ _tags </> unTag tag </> _not </> unId (
 
 cmsAbsolute :: CMSFilePath -> MonadCMS FilePath
 cmsAbsolute (CMSFilePath cfp) = do
-  top <- askCmsDir
+  top <- cmsRoot
   return $ top </> cfp
 
 cmsCanonical :: CMSFilePath -> MonadCMS FilePath
 cmsCanonical (CMSFilePath cfp) = do
-  top <- askCmsDir
+  top <- cmsRoot
   cmsIO $ Posix.canonicalizePath (top </> cfp)
 
 createLink :: CMSFilePath -> CMSFilePath -> MonadCMS ()
 createLink linkTo anchor = do
-  let to = relativise anchor linkTo
+  let to = cmsRelativise anchor linkTo
   at <- cmsAbsolute anchor
   cmsIO $ Posix.createSymbolicLink to at
 
+-- | 'cmsIO' acts like 'liftIO' with exception handling.
 cmsIO :: IO a -> MonadCMS a
 cmsIO = lift . withExceptT toCMSError . ExceptT . tryIOError
   where
     toCMSError io
       | isAlreadyExistsError io = AlreadyExists
       | otherwise               = CMSIOError io
-
-type MonadCMS a = ReaderT CMS (ExceptT CMSError IO) a
 
 newtype Identifier = Identifier { unId :: FilePath }
                    deriving (Eq, Ord)
@@ -162,9 +180,6 @@ thingFromFile raw = do
     other                  -> do
       id <- liftIO $ uniqueNameFromFileContents raw
       return $ Thing id (Just cmsPath)
-
-askCmsDir :: MonadCMS FilePath
-askCmsDir = cmsDir <$> ask
 
 --
 -- Retrieval
@@ -214,43 +229,5 @@ uniqueNameFromFileContents fp = do
   let ext = fmap toLower (takeExtension fp)
   return $ Identifier $ (take 2 sha) </> (drop 2 sha) <.> ext
 
-stripMetaDirs :: FilePath -> FilePath
-stripMetaDirs fp = joinPath $ reverse $ dropMetas (reverse (splitDirectories fp), 0)
-  where dropMetas ("..":rest, drp)  = dropMetas (rest, drp +1)
-        dropMetas (".":rest, drp)   = dropMetas (rest,drp)
-        dropMetas (x:rest, 0)       = x:(dropMetas (rest,0))
-        dropMetas (_:rest, drp)     = dropMetas (rest, drp -1)
-        dropMetas ([], 0)           = []
-        dropMetas ([], _)           = error "Cannot drop more directories"
-
-isHidden ('.':_) = True
-isHidden _ = False
-
--- | A best-effort path canonicalization without symlink dereferencing.
-almostCanonicalizePath :: FilePath -> IO FilePath
-almostCanonicalizePath fp = do
-  stripMetaDirs <$> Posix.makeAbsolute fp
-
--- | Relativise a path from the first file to the second.
---
--- When used with files having a common path (from, target), the
--- common path will be stripped off and the appropriate '..'
--- directories will be entered such that the returned path may be the
--- contents of a symbolic link to file `target` when placed at file
--- location `from`
-relativise' :: FilePath -> FilePath -> FilePath
-relativise' from target =
-  let fromS = splitDirectories from
-      targS = splitDirectories target
-      removeBase (x:restx) (y:resty)
-        | x == y    = removeBase restx resty
-        | otherwise = (x:restx, y:resty)
-      ascension (x:[])   = "."
-      ascension (x:[_])  = ".."
-      ascension (x:rest) = ".." </> ascension rest
-
-      (fromR, targR) = removeBase fromS targS
-  in ascension fromR </> joinPath targR
-
-relativise :: CMSFilePath -> CMSFilePath -> FilePath
-relativise (CMSFilePath from) (CMSFilePath target) = relativise' from target
+cmsRelativise :: CMSFilePath -> CMSFilePath -> FilePath
+cmsRelativise (CMSFilePath from) (CMSFilePath target) = relativise from target

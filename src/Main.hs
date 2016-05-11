@@ -24,9 +24,9 @@ runCommand :: CMS -> MonadCMS a -> IO a
 runCommand cms action = runCMS action cms >>= failCMS
 
 main = do
-  cms <- getCurrentDirectory >>= cmsFrom
+  theCMS <- getCurrentDirectory >>= cms
   command <- getArgs
-  runCommand cms $ case command of
+  runCommand theCMS $ case command of
     ("import":files)    -> mapM_ cmsImport files
     ("all":filters)     -> things >>= doFilters filters
 
@@ -37,24 +37,28 @@ main = do
     ["gc"]  -> doGarbageCollect
 
     -- Allow external 'extensions' to the content management system.
-    (cmd:arguments) -> liftIO $ do
+    (cmd:arguments) ->
+      cmsRoot >>=
+      \root -> liftIO $ do
       exe <- findExecutable $ "cm-" ++ cmd
       case exe of
         Nothing -> hPutStrLn stderr $ "Unknown command '" ++ cmd ++ "'"
         Just progname -> do
           getProgName >>= setEnv "CM"
-          setEnv "CM_DIR" (cmsRoot cms)
+          setEnv "CM_DIR" root
           callProcess progname arguments
 
 data AutoFilterResult = Include | Exclude | DoNotTag
                       deriving Show
 
-callAutoFilter :: CMS -> FilePath -> FilePath -> IO AutoFilterResult
-callAutoFilter cms command file = do
+callAutoFilter :: CMS -> FilePath -> FilePath -> MonadCMS AutoFilterResult
+callAutoFilter cms command file =
+  cmsRoot >>=
+  \root -> liftIO $ do
   let includeRetval = 81
       excludeRetval = 45
   getProgName >>= setEnv "CM"
-  setEnv "CM_DIR" (cmsRoot cms)
+  setEnv "CM_DIR" root
   setEnv "CM_INCLUDE_RETVAL" (show includeRetval)
   setEnv "CM_EXCLUDE_RETVAL" (show excludeRetval)
   result <- spawnProcess command [file] >>= waitForProcess

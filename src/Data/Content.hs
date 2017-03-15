@@ -5,7 +5,7 @@ module Data.Content
        , cmsRoot
 
        , MonadCMS
-       , runCMS
+       , runCMS, initCMS
 
        , Thing
        , thingFromFile, thingAbsolutePath, thingCanonicalPath

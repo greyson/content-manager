@@ -4,7 +4,7 @@ module Data.Content.Types
        , cms
        , cmsRoot
 
-       , runCMS
+       , runCMS, initCMS
        , MonadCMS
 
        , Tag
@@ -76,6 +76,12 @@ runCMS a cms = runExceptT $ runReaderT a cms
 -- | Get the CMS's root directory
 cmsRoot :: MonadCMS FilePath
 cmsRoot = cmsDir <$> ask
+
+initCMS :: IO (Either CMSError ())
+initCMS = do
+  Posix.createDirectoryIfMissing True $ _all
+  Posix.createDirectoryIfMissing True $ _tags
+  return $ Right ()
 
 newtype Tag = Tag { unTag :: String }
             deriving Eq

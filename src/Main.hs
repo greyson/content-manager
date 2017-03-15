@@ -24,36 +24,39 @@ runCommand :: CMS -> MonadCMS a -> IO a
 runCommand cms action = runCMS action cms >>= failCMS
 
 main = do
-  command <- getArgs
-  case command of
-    ["init"] -> do
-      createDirectoryIfMissing True $ ".managed-content" </> "ALL"
-      createDirectoryIfMissing True $ ".managed-content" </> "TAGS"
-      putStrLn "Initialized content management"
-    _ -> do
-      theCMS <- getCurrentDirectory >>= cms
-      runCommand theCMS $ case command of
-        ("import":files)    -> mapM_ cmsImport files
-        ("all":filters)     -> things >>= doFilters filters
+  getArgs >>= handleCMSCommand
 
-        ["tags"]                -> doListTags
-        ["mktag", tagname]      -> doMkTag tagname
-        ("tag":tagname:files)   -> doTagging doTag tagname files
-        ("untag":tagname:files) -> doTagging doNotag tagname files
+-- Initializing the content repository is a special case,
+-- there is no repository to work with already.
+handleCMSCommand ["init"] =
+  initCMS >> putStrLn "Initialized content management"
 
-        ["fix"] -> things >>= mapM_ checkAndFixExtension
-        ["gc"]  -> doGarbageCollect
+-- Otherwise, all other commands depend on knowing the root of the
+-- content repository
+handleCMSCommand command = do
+  theCMS <- getCurrentDirectory >>= cms
+  runCommand theCMS $ case command of
+    ("import":files)    -> mapM_ cmsImport files
+    ("all":filters)     -> things >>= doFilters filters
 
-        -- Allow external 'extensions' to the content management system.
-        (cmd:arguments) ->
-          cmsRoot >>= \root -> liftIO $ do
-            exe <- findExecutable $ "cm-" ++ cmd
-            case exe of
-              Nothing -> hPutStrLn stderr $ "Unknown command '" ++ cmd ++ "'"
-              Just progname -> do
-                getProgName >>= setEnv "CM"
-                setEnv "CM_DIR" root
-                callProcess progname arguments
+    ["tags"]                -> doListTags
+    ["mktag", tagname]      -> doMkTag tagname
+    ("tag":tagname:files)   -> doTagging doTag tagname files
+    ("untag":tagname:files) -> doTagging doNotag tagname files
+
+    ["fix"] -> things >>= mapM_ checkAndFixExtension
+    ["gc"]  -> doGarbageCollect
+
+    -- Allow external 'extensions' to the content management system.
+    (cmd:arguments) ->
+      cmsRoot >>= \root -> liftIO $ do
+        exe <- findExecutable $ "cm-" ++ cmd
+        case exe of
+          Nothing -> hPutStrLn stderr $ "Unknown command '" ++ cmd ++ "'"
+          Just progname -> do
+            getProgName >>= setEnv "CM"
+            setEnv "CM_DIR" root
+            callProcess progname arguments
 
 data AutoFilterResult = Include | Exclude | DoNotTag
                       deriving Show

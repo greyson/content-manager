@@ -2,7 +2,7 @@
 -- documentation, see http://haskell.org/cabal/users-guide/
 
 name:                content-manager
-version:             0.2.0.0
+version:             0.3.0.0
 synopsis:            A POSIX filesystem-based content management system
 description:         This is a clean, future-proof way to manage tagging content
                      in an already semi-organized file structure. Files which are

@@ -35,7 +35,7 @@ your archive. All items must be contained within a single
 directory. Subdirectories are completely allowed, though. Encouraged
 even!
 
-Anywhere in that directory that you currently are, the `cm` tool will
+Anywhere in that directory that you currently are, the ~cm~ tool will
 walk back up the folders to find out where the top level of the
 repository is, so you can delve into that old iPhoto library and start
 tagging from there without having to remember how many levels down you
@@ -43,7 +43,7 @@ are.
 
 *** The tool will not modify your files or structure in any way
 
-Unless you use the directory `.managed-content` for some of your
+Unless you use the directory ~.managed-content~ for some of your
 archived files, this tool will not destroy any of your archive.  It
 won't even touch it. (Lawyer speak here: No warranty here, use at your
 own risk) Lawyer speak aside, I designed this to be as non-destructive
@@ -51,25 +51,25 @@ as I could.
 
 *** Files may be referred to by any name
 
-Internally, `cm` uses the symbolic links in `.managed-content/ALL` to
+Internally, ~cm~ uses the symbolic links in ~.managed-content/ALL~ to
 refer to files. Since the names of these file are derived from a hash
-of the originial file's content, `cm` will accept the original file
+of the originial file's content, ~cm~ will accept the original file
 name.  It can find its "index" name just by rerunning a hash.  This is
 convenient when you want to tag whole branches of your existing
 archive's organization.
 
 *** Custom commands
 
-If you wish to add a command to `cm`'s repertoire, you need only make
-the program or script `cm-mycommand` somewhere on your PATH.  This
-program or script will get two environment variables `CM` and `CM_DIR`
-indicating both the reachable executable name of `cm` and the
+If you wish to add a command to ~cm~'s repertoire, you need only make
+the program or script ~cm-mycommand~ somewhere on your PATH.  This
+program or script will get two environment variables ~CM~ and ~CM_DIR~
+indicating both the reachable executable name of ~cm~ and the
 top-level of the repository respectively.
 
 I personally use this for quick image tagging with a small script I
-call `cm-quickimg` which tags a tag name and cycles through the
+call ~cm-quickimg~ which tags a tag name and cycles through the
 results of a query to quickly sort through images using the viewer
-`feh`.
+~feh~.
 
 #+BEGIN_SRC sh
 #!/bin/sh
@@ -88,7 +88,7 @@ done | sort -t "        " -k 2                   \
 #+END_SRC
 
 A rather complicated script, but used properly, it will allow me to
-use the numpad `0` and `5` to indicate which pictures should be
+use the numpad ~0~ and ~5~ to indicate which pictures should be
 included or excluded in the tag; it also prints EXIF information and
 the command-line information in the viewer. I use it like this:
 
@@ -102,8 +102,8 @@ the command-line information in the viewer. I use it like this:
     cm init
 #+END_SRC
 
-Intializing a new content repository creates a `.managed-content`
-directory with `ALL` and `TAGS` subdirectories.
+Intializing a new content repository creates a ~.managed-content~
+directory with ~ALL~ and ~TAGS~ subdirectories.
 
 ** Import content
 
@@ -128,14 +128,14 @@ it will be inaccurate)
     cm mktag <tagname>
 #+END_SRC
 
-Create a subdirectory `.managed-content/TAGS/<tagname>` for the
-new tag.  This also creates a further subdirectory `.not` for files
+Create a subdirectory ~.managed-content/TAGS/<tagname>~ for the
+new tag.  This also creates a further subdirectory ~.not~ for files
 which are explicitly excluded from this tag.
 
 ** List existing tags
 
-Although this would be really easy to do with `ls
-.managed-content/TAGS/`, I find that using the `cm` tool to list the
+Although this would be really easy to do with ~ls
+.managed-content/TAGS/~, I find that using the ~cm~ tool to list the
 tags is cleaner and more convenient.  Especially since this tool will
 find the content repository even if you're buried somewhere in the
 legacy heirarchy.
@@ -147,7 +147,7 @@ legacy heirarchy.
 #+END_SRC
 
 Symbolically links the hash-identity of the file into the tag
-directory.  In  this way, even if you are unable to find or run `cm`
+directory.  In  this way, even if you are unable to find or run ~cm~
 in the future, you still have easy access to the files already
 included in the tag.
 
@@ -158,11 +158,11 @@ included in the tag.
 #+END_SRC
 
 Symbolically link the hash-identity of the file into the
-`<tagname>/.not` directory.
+~<tagname>/.not~ directory.
 
 ** Allowing auto-tagging
 
-Creating an executeable file `.auto` inside the tag's directory will
+Creating an executeable file ~.auto~ inside the tag's directory will
 allow that tag to 'auto-tag' content (explained below)
 
 ** Query.
@@ -174,40 +174,40 @@ allow that tag to 'auto-tag' content (explained below)
 Query all files known to the content repository, optionally filtered
 by the query language.
 
-`with <tagname>` -- Narrow the search to include files which have been
-included in `<tagname>'.
+~with <tagname>~ -- Narrow the search to include files which have been
+included in ~<tagname>'.
 
-`not <tagname>` -- Narrow the search to include only files which have
-been explicitly excluded from `<tagname>`.
+~not <tagname>~ -- Narrow the search to include only files which have
+been explicitly excluded from ~<tagname>~.
 
-`lacking <tagname>` -- Narrow the search to include only files which
-have neither been included or excluded from `<tagname>` -- this is
+~lacking <tagname>~ -- Narrow the search to include only files which
+have neither been included or excluded from ~<tagname>~ -- this is
 useful to get a list of controlled files which have not yet been
 categorized for a certain tag.
 
-`actual` -- Rather than returning the main symbolic link for the file
-from the `ALL` directory, this will cause the original filename to be
+~actual~ -- Rather than returning the main symbolic link for the file
+from the ~ALL~ directory, this will cause the original filename to be
 shown.  This is not the default only because the existing tags are
 already very easy to trace.
 
-`autotag <tagname>` -- Run the `TAGS/<tagname>/.auto` program or
+~autotag <tagname>~ -- Run the ~TAGS/<tagname>/.auto~ program or
 script on all files still included by the query.
 
 * Writing an auto-tagger
 
-The script or program run by `cm ... autotag <tagname>` will have 3
+The script or program run by ~cm ... autotag <tagname>~ will have 3
 environment variables available to it.
 
-`CM` -- This will be the absolute path of the `cm` tool. Useful if
-you're not sure it's going to be on your `PATH`. For a time, I was
+~CM~ -- This will be the absolute path of the ~cm~ tool. Useful if
+you're not sure it's going to be on your ~PATH~. For a time, I was
 bundling the executable with my content repository and wanted to make
 sure I was using the right version.
 
-`CM_INCLUDE_RETVAL` -- An arbitrary value (decided on by `cm`) to
+~CM_INCLUDE_RETVAL~ -- An arbitrary value (decided on by ~cm~) to
 return to indicate that the supplied file should be included in this
 tag.
 
-`CM_EXCLUDE_RETVAL` -- An arbitrary value to return indicating that
+~CM_EXCLUDE_RETVAL~ -- An arbitrary value to return indicating that
 the supplied file should be excluded from the tag.
 
 * Examples
@@ -239,8 +239,8 @@ populated).
     chmod +x .managed-content/TAGS/image/.auto
 #+END_SRC
 
-Firstly, create the tag `image` and then an executable `.auto` file in
-the `.managed-content/TAGS/image` directory containing the following:
+Firstly, create the tag ~image~ and then an executable ~.auto~ file in
+the ~.managed-content/TAGS/image~ directory containing the following:
 
 #+BEGIN_SRC sh
 #!/bin/sh
@@ -263,6 +263,6 @@ already been applied to.
 #+END_SRC
 
 You should see a bunch of output indicating the files that are being
-included and excluded from the tag `image`.  Of note: running the
+included and excluded from the tag ~image~.  Of note: running the
 command again should have no output, since there will no longer be any
-files lacking inclusion or exclusion from `image`.
+files lacking inclusion or exclusion from ~image~.

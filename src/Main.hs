@@ -1,4 +1,4 @@
-{-# LANGUAGE MultiWayIf #-}
+{-# LANGUAGE MultiWayIf, TupleSections #-}
 module Main where
 
 import           Control.Monad.Except
@@ -24,47 +24,70 @@ runCommand :: CMS -> MonadCMS a -> IO a
 runCommand cms action = runCMS action cms >>= failCMS
 
 main = do
-  theCMS <- getCurrentDirectory >>= cms
   command <- getArgs
-  runCommand theCMS $ case command of
-    ("import":files)    -> mapM_ cmsImport files
-    ("all":filters)     -> things >>= doFilters filters
+  case command of
+    ["init"] -> do
+      createDirectoryIfMissing True $ ".managed-content" </> "ALL"
+      createDirectoryIfMissing True $ ".managed-content" </> "TAGS"
+      putStrLn "Initialized content management"
+    _ -> do
+      theCMS <- getCurrentDirectory >>= cms
+      runCommand theCMS $ case command of
+        ("import":files)    -> mapM_ cmsImport files
+        ("all":filters)     -> things >>= doFilters filters
 
-    ("tag":tagname:files)   -> doTagging doTag tagname files
-    ("untag":tagname:files) -> doTagging doNotag tagname files
+        ["tags"]                -> doListTags
+        ["mktag", tagname]      -> doMkTag tagname
+        ("tag":tagname:files)   -> doTagging doTag tagname files
+        ("untag":tagname:files) -> doTagging doNotag tagname files
 
-    ["fix"] -> things >>= mapM_ checkAndFixExtension
-    ["gc"]  -> doGarbageCollect
+        ["fix"] -> things >>= mapM_ checkAndFixExtension
+        ["gc"]  -> doGarbageCollect
 
-    -- Allow external 'extensions' to the content management system.
-    (cmd:arguments) ->
-      cmsRoot >>=
-      \root -> liftIO $ do
-      exe <- findExecutable $ "cm-" ++ cmd
-      case exe of
-        Nothing -> hPutStrLn stderr $ "Unknown command '" ++ cmd ++ "'"
-        Just progname -> do
-          getProgName >>= setEnv "CM"
-          setEnv "CM_DIR" root
-          callProcess progname arguments
+        -- Allow external 'extensions' to the content management system.
+        (cmd:arguments) ->
+          cmsRoot >>= \root -> liftIO $ do
+            exe <- findExecutable $ "cm-" ++ cmd
+            case exe of
+              Nothing -> hPutStrLn stderr $ "Unknown command '" ++ cmd ++ "'"
+              Just progname -> do
+                getProgName >>= setEnv "CM"
+                setEnv "CM_DIR" root
+                callProcess progname arguments
 
 data AutoFilterResult = Include | Exclude | DoNotTag
                       deriving Show
 
-callAutoFilter :: CMS -> FilePath -> FilePath -> MonadCMS AutoFilterResult
-callAutoFilter cms command file =
-  cmsRoot >>=
-  \root -> liftIO $ do
-  let includeRetval = 81
-      excludeRetval = 45
-  getProgName >>= setEnv "CM"
-  setEnv "CM_DIR" root
-  setEnv "CM_INCLUDE_RETVAL" (show includeRetval)
-  setEnv "CM_EXCLUDE_RETVAL" (show excludeRetval)
-  result <- spawnProcess command [file] >>= waitForProcess
-  return $ if | result == (ExitFailure includeRetval) -> Include
-              | result == (ExitFailure excludeRetval) -> Exclude
-              | otherwise                             -> DoNotTag
+doAutoFilter withTag thing = do
+  file <- thingAbsolutePath thing
+  action <- callAutoFilter withTag thing
+  case action of
+    Include -> do
+      cmsTag withTag thing
+      liftIO $ hPutStrLn stderr $ show withTag ++ " now includes '" ++ file ++ "'"
+    Exclude -> do
+      cmsNotag withTag thing
+      liftIO $ hPutStrLn stderr $ show withTag ++ " now excludes '" ++ file ++ "'"
+    _ -> return ()
+
+callAutoFilter :: Tag -> Thing -> MonadCMS AutoFilterResult
+callAutoFilter withTag thing = do
+  root <- cmsRoot
+  tagger <- getAutoTagger withTag
+  file <- thingCanonicalPath thing
+  case tagger of
+    Nothing -> error $ "Tag " ++ show withTag ++ " does not have an autotagger"
+    Just command -> liftIO $ do
+      let includeRetval = 81
+          excludeRetval = 45
+      getProgName >>= setEnv "CM"
+      setEnv "CM_DIR" root
+      setEnv "CM_INCLUDE_RETVAL" (show includeRetval)
+      setEnv "CM_EXCLUDE_RETVAL" (show excludeRetval)
+      result <- spawnProcess command [file] >>= waitForProcess
+      return $ if | result == (ExitFailure includeRetval) -> Include
+                  | result == (ExitFailure excludeRetval) -> Exclude
+                  | otherwise                             -> DoNotTag
 
 checkAndFixExtension t = do
   abs <- thingAbsolutePath t
@@ -77,6 +100,16 @@ checkAndFixExtension t = do
     putStrLn $ "Want to fix " ++ abs
     renameFile abs target
     putStrLn $ "Fixed " ++ target
+
+doListTags :: MonadCMS ()
+doListTags = do
+  allTags <- tags
+  liftIO $ mapM_ (putStrLn . show) allTags
+
+doMkTag :: String -> MonadCMS ()
+doMkTag tagname = do
+  newTag tagname
+  liftIO $ putStrLn $ "Created tag '" ++ tagname ++ "'"
 
 doTagging :: (Tag -> FilePath -> MonadCMS ()) -> String -> [FilePath] -> MonadCMS ()
 doTagging how tagname files = do
@@ -105,6 +138,10 @@ doGarbageCollect = do
 doFilters :: [String] -> Set.Set Thing -> MonadCMS ()
 doFilters [] set =
   mapM_ (\t -> thingAbsolutePath t >>= liftIO . putStrLn) (Set.elems set)
+
+doFilters ["autotag", tagname] set = do
+  tag <- getTag tagname
+  mapM_ (doAutoFilter tag) (Set.elems set)
 doFilters ["actual"] set =
   mapM_ (\t -> thingCanonicalPath t >>= liftIO . putStrLn) (Set.elems set)
 

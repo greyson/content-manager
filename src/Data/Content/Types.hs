@@ -8,7 +8,8 @@ module Data.Content.Types
        , MonadCMS
 
        , Tag
-       , getTag
+       , tags, newTag
+       , getTag, getAutoTagger
 
        , CMSFilePath
        , cmsFilePath
@@ -25,8 +26,8 @@ module Data.Content.Types
        , createLink
        ) where
 
-#define _all  "ALL"
-#define _tags "TAGS"
+#define _all  ".managed-content/ALL"
+#define _tags ".managed-content/TAGS"
 #define _not  ".not"
 
 import           Control.Monad.Except
@@ -81,6 +82,26 @@ newtype Tag = Tag { unTag :: String }
 
 instance Show Tag where
   show (Tag t) = t
+
+tags :: MonadCMS [Tag]
+tags = do
+  top <- cmsRoot
+  dirs <- liftIO $ Posix.getDirectoryContents $ top </> _tags
+  return $ Tag <$> filter (not . (`elem` [".", ".."]) ) dirs
+
+getAutoTagger :: Tag -> MonadCMS (Maybe FilePath)
+getAutoTagger (Tag t) =  do
+  top <- cmsRoot
+  let taggerFile = top </> _tags </> t </> ".auto"
+  hasTagger <- liftIO $ Posix.doesFileExist taggerFile
+  if hasTagger
+    then return $ Just taggerFile
+    else return $ Nothing
+
+newTag :: String -> MonadCMS ()
+newTag tag = do
+  top <- cmsRoot
+  liftIO $ Posix.createDirectoryIfMissing True (top </> _tags </> tag </> _not)
 
 -- | 'getTag' /tagname/ obtains a 'Tag' with the given /tagname/ as
 -- long as it exists within the CMS.

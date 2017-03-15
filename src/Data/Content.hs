@@ -12,7 +12,8 @@ module Data.Content
        , things, tagThings, notagThings
 
        , Tag
-       , getTag
+       , tags, newTag
+       , getTag, getAutoTagger
 
        , cmsImport, cmsTag, cmsNotag
        , cleanRootLinks

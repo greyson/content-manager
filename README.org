@@ -1,0 +1,242 @@
+* A Futureproof Content Manager
+
+You have spent years collecting the digital pictures, movies,
+documents, and other archival material that make up your Archive. Your
+spouse and friends have all contributed to this mess, with different
+organizational styles of their own. It's become a jumbled mess that,
+in order for you to navigate, requires not just knowing that the
+picture you're looking for was taken 8 years ago, but what platform
+you were using to store them at that time (iPhoto? Picasso?)
+
+At some point, you may have found, or wrote, a program that would help
+you tag and organize these archival items. Now it (or that version of
+it) is no longer supported, and you can't run it anymore.  That
+database of metadata is gone, and your pile of "stuff" is bigger than
+it was when you first organized it.
+
+Rather than using opaque databases and file formats to organize your
+content, it should be done with the filesystem, or with flat files;
+but manually editing those can be quite tedious, especially at the
+rate that new content is generated. Enter the
+Stupid-Simple-Content-Manager.
+
+* Usage
+
+I haven't implemented in-command help yet, so this is about the only
+place you'll find a way to use the progrem (short of looking at the
+really ugly source code).
+
+** Underlying principles
+
+*** A Content Repository is a directory
+
+Firstly, a content repository must be initialized at the top level of
+your archive. All items must be contained within a single
+directory. Subdirectories are completely allowed, though. Encouraged
+even!
+
+Anywhere in that directory that you currently are, the `cm` tool will
+walk back up the folders to find out where the top level of the
+repository is, so you can delve into that old iPhoto library and start
+tagging from there without having to remember how many levels down you
+are.
+
+*** The tool will not modify your files or structure in any way
+
+Unless you use the directory `.managed-content` for some of your
+archived files, this tool will not destroy any of your archive.  It
+won't even touch it. (Lawyer speak here: No warranty here, use at your
+own risk) Lawyer speak aside, I designed this to be as non-destructive
+as I could.
+
+*** Files may be referred to by any name
+
+Internally, `cm` uses the symbolic links in `.managed-content/ALL` to
+refer to files. Since the names of these file are derived from a hash
+of the originial file's content, `cm` will accept the original file
+name.  It can find its "index" name just by rerunning a hash.  This is
+convenient when you want to tag whole branches of your existing
+archive's organization.
+
+*** Custom commands
+
+If you wish to add a command to `cm`'s repertoire, you need only make
+the program or script `cm-mycommand` somewhere on your PATH.  This
+program or script will get two environment variables `CM` and `CM_DIR`
+indicating both the reachable executable name of `cm` and the
+top-level of the repository respectively.
+
+I personally use this for quick image tagging with a small script I
+call `cm-quickimg` which tags a tag name and cycles through the
+results of a query to quickly sort through images using the viewer
+`feh`.
+
+>   #!/bin/sh
+>
+>   TAG="$1"; shift
+>
+>   while read link; do
+>     echo -ne "$link\t"
+>     readlink "$link"
+>   done | sort -t "        " -k 2                   \
+>        | awk '{print $1}'                          \
+>        | feh -ZFG --draw-exif --cycle-once --quiet \
+>            --action "$CM tag '$TAG' '%f'"          \
+>            --action5 "$CM untag '$TAG' '%f'"       \
+>            -f -
+
+A rather complicated script, but used properly, it will allow me to
+use the numpad `0` and `5` to indicate which pictures should be
+included or excluded in the tag; it also prints EXIF information and
+the command-line information in the viewer. I use it like this:
+
+    cm all lacking newtag | cm quickimg newtag
+
+** Initialize a new content repository
+
+    cm init
+
+Intializing a new content repository creates a `.managed-content`
+directory with `ALL` and `TAGS` subdirectories.
+
+** Import content
+
+    cm import <files...>
+
+Import files into the content manager.  Using a sha-1 hash of the file
+itself, this creates symbolic links to the original location of the
+files imported.  It does not touch the existing organization of the
+files, leaving whatever scheme you already used to organize the files
+in place.
+
+This may be run more than once on the same file, and will have no
+detrimental effect, unless the file has been changed (in which case it
+will appear as a new file, though the old one will still be reachable,
+it will be inaccurate)
+
+** Create a tag
+
+    cm mktag <tagname>
+
+Create a subdirectory `.managed-content/TAGS/<tagname>` for the
+new tag.  This also creates a further subdirectory `.not` for files
+which are explicitly excluded from this tag.
+
+** List existing tags
+
+Although this would be really easy to do with `ls
+.managed-content/TAGS/`, I find that using the `cm` tool to list the
+tags is cleaner and more convenient.  Especially since this tool will
+find the content repository even if you're buried somewhere in the
+legacy heirarchy.
+
+** Tag content
+
+    cm tag <tagname> <files...>
+
+Symbolically links the hash-identity of the file into the tag
+directory.  In  this way, even if you are unable to find or run `cm`
+in the future, you still have easy access to the files already
+included in the tag.
+
+** Tag-excluded content
+
+    cm untag <tagname> <files>
+
+Symbolically link the hash-identity of the file into the
+`<tagname>/.not` directory.
+
+** Allowing auto-tagging
+
+Creating an executeable file `.auto` inside the tag's directory will
+allow that tag to 'auto-tag' content (explained below)
+
+** Query.
+
+    cm all [ {with|not|lacking} <tagname> ... ] [actual|autotag <tagname>]
+
+Query all files known to the content repository, optionally filtered
+by the query language.
+
+`with <tagname>` -- Narrow the search to include files which have been
+included in `<tagname>'.
+
+`not <tagname>` -- Narrow the search to include only files which have
+been explicitly excluded from `<tagname>`.
+
+`lacking <tagname>` -- Narrow the search to include only files which
+have neither been included or excluded from `<tagname>` -- this is
+useful to get a list of controlled files which have not yet been
+categorized for a certain tag.
+
+`actual` -- Rather than returning the main symbolic link for the file
+from the `ALL` directory, this will cause the original filename to be
+shown.  This is not the default only because the existing tags are
+already very easy to trace.
+
+`autotag <tagname>` -- Run the `TAGS/<tagname>/.auto` program or
+script on all files still included by the query.
+
+* Writing an auto-tagger
+
+The script or program run by `cm ... autotag <tagname>` will have 3
+environment variables available to it.
+
+`CM` -- This will be the absolute path of the `cm` tool. Useful if
+you're not sure it's going to be on your `PATH`. For a time, I was
+bundling the executable with my content repository and wanted to make
+sure I was using the right version.
+
+`CM_INCLUDE_RETVAL` -- An arbitrary value (decided on by `cm`) to
+return to indicate that the supplied file should be included in this
+tag.
+
+`CM_EXCLUDE_RETVAL` -- An arbitrary value to return indicating that
+the supplied file should be excluded from the tag.
+
+* Examples
+
+What's documentation without examples!?
+
+** Creating and populating a new repository
+
+    cm init
+    find . -type f -exec cm import {} \;
+
+I intend on allowing simple recursive addition soon, but have not yet
+gotten around to it (mostly because my archive is already all
+populated).
+
+** Getting all items tagged with both Amy and Bob
+
+    cm all with amy with bob
+
+** Auto-tagging all image files
+
+    cm mktag image
+    touch .managed-content/TAGS/image/.auto
+    chmod +x .managed-content/TAGS/image/.auto
+
+Firstly, create the tag `image` and then an executable `.auto` file in
+the `.managed-content/TAGS/image` directory containing the following:
+
+    #!/bin/sh
+    mimetype=${file -b --mime-type "$1"}
+    if [ "${mimetype%%/*}" == "image" ]; then
+       exit $CM_INCLUDE_RETVAL
+    else
+       exit $CM_EXCLUDE_RETVAL
+    fi
+
+As should be evident, this uses the detected mimetype of a file to
+either include, or exclude it from the tag.
+
+Now, we just need to apply the tag to everything that it has not
+already been applied to.
+
+    cm all lacking image autotag image
+
+You should see a bunch of output indicating the files that are being
+included and excluded from the tag `image`.  Of note: running the
+command again should have no output, since there will no longer be any
+files lacking inclusion or exclusion from `image`.
